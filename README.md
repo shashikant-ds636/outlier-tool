@@ -11,7 +11,7 @@
 
 <p align="center">
   A beginner-friendly Python package for <b>detecting</b> and <b>handling</b> numeric outliers
-  with the <b>IQR</b> and <b>Z-score</b> methods.
+  in pandas <b>DataFrames</b> and <b>Series</b>, with the <b>IQR</b> and <b>Z-score</b> methods.
 </p>
 
 ---
@@ -22,7 +22,9 @@
 - [Installation](#-installation)
 - [Use it in Google Colab](#-use-it-in-google-colab)
 - [Quick start](#-quick-start)
+- [Using a single column (Series)](#-using-a-single-column-series)
 - [Methods](#-methods)
+- [What it does and does not do](#-what-it-does-and-does-not-do)
 - [How the two methods work](#-how-the-two-methods-work)
 - [Which handling method should I use?](#-which-handling-method-should-i-use)
 - [Important notes](#-important-notes)
@@ -32,9 +34,10 @@
 
 - 🔍 **Find** outliers in every numeric column with one call
 - 📏 Two detection methods: **IQR** and **Z-score**
-- ✂️ **Trim** (remove rows), 🧢 **cap** (clip values) or 🔁 **replace** (mean / median)
+- ✂️ **Trim** (remove rows/elements), 🧢 **cap** (clip values) or 🔁 **replace** (mean / median)
 - 🎯 Choose which columns to check
-- 🛡️ Never changes your original DataFrame, because every method returns a new one
+- 🧬 Works on a whole **DataFrame** or a single **Series** (e.g. `df["price"]`)
+- 🛡️ Never changes your original data, because every method returns a new DataFrame or Series
 
 ## 📦 Installation
 
@@ -147,11 +150,34 @@ For the demo data above, `find("iqr")` returns:
 | price | iqr | 7.625 | 16.625 | 1 | 12.5 |
 | age | iqr | 17.5 | 31.5 | 0 | 0.0 |
 
+## 🧍 Using a single column (Series)
+
+Pass a `pandas.Series` directly — no need to wrap it in a DataFrame first:
+
+```python
+import pandas as pd
+from outlier_tool import Outliers
+
+price = df["price"]
+
+o = Outliers(price)
+print(o.find("iqr"))              # one-row report for this Series
+capped_price = o.iqr_cap()        # -> pandas.Series
+trimmed_price = o.iqr_trim()      # -> pandas.Series
+zscore_price = o.zscore_cap()     # -> pandas.Series
+```
+
+- Every detection and handling method works the same way as for a DataFrame.
+- Handling methods return a **Series** (not a DataFrame), keeping its original `name`.
+- Trimming keeps the original index labels of the retained elements.
+- The input Series itself is never modified.
+- `columns=` is not used with Series input (there is only one column).
+
 ## 🧰 Methods
 
 | Method | What it does |
 |---|---|
-| `Outliers(df, columns=None)` | Create the tool. `columns` limits which columns are checked |
+| `Outliers(data, columns=None)` | Create the tool from a DataFrame or Series. `columns` (DataFrame only) limits which columns are checked |
 | `find(method="iqr", threshold=None)` | Summary of outliers per column (`"iqr"` or `"zscore"`) |
 | `iqr_trim(factor=1.5)` | Remove rows with IQR outliers |
 | `iqr_cap(factor=1.5)` | Cap values at the IQR limits |
@@ -159,6 +185,29 @@ For the demo data above, `find("iqr")` returns:
 | `zscore_cap(limit=3)` | Cap values at the Z-score limits |
 | `replace_with_mean(method="iqr", threshold=None)` | Replace outliers with the mean of the non-outliers |
 | `replace_with_median(method="iqr", threshold=None)` | Replace outliers with the median of the non-outliers |
+
+**Return types:** `find()` always returns a DataFrame (a report). Every handling method
+(`*_trim`, `*_cap`, `replace_with_mean`, `replace_with_median`) returns a **DataFrame**
+when constructed from a DataFrame, and a **Series** when constructed from a Series.
+
+## 🚫 What it does and does not do
+
+This is a small, focused **outlier** utility — not a general data-cleaning or
+preprocessing framework. It does:
+
+- Detect outliers with the IQR or Z-score method.
+- Trim, cap, or replace (mean/median) detected outliers.
+- Work on numeric DataFrame columns or a single numeric Series.
+
+It does **not** automatically:
+
+- Impute or report missing values (NaN).
+- Detect or correct skewness.
+- Detect, encode, or drop categorical/non-numeric columns.
+- Scale, normalize, or otherwise preprocess features for machine learning.
+
+Inspect your data, handle missing values, and choose the appropriate numeric
+columns yourself before using this package.
 
 ## 📐 How the two methods work
 
@@ -182,12 +231,16 @@ Here `IQR = Q3 - Q1`. A value outside the lower and upper limits is flagged as a
 
 ## ⚠️ Important notes
 
-- Outliers are **not always errors**. Look at them before removing them.
-- Trimming removes the **whole row** if any checked column has an outlier.
-- Every method returns a **new DataFrame**. Save it, for example `df_clean = o.iqr_cap()`.
+- Outliers are **not always errors** — they can be real, extreme values. Look at them in
+  context before removing them.
+- For a DataFrame, trimming removes the **whole row** if any checked column has an outlier.
+  For a Series, only the outlier elements are removed.
+- Every method returns a **new DataFrame or Series** — your original data is never modified.
+  Save the result, for example `df_clean = o.iqr_cap()`.
 - Missing values (NaN) are never flagged as outliers.
 - Constant columns (std = 0) are skipped by the Z-score method.
-- Skip ID columns and 0/1 flag columns with `Outliers(df, columns=[...])`.
+- Skip ID columns and 0/1 flag columns with `Outliers(df, columns=[...])`, or pick a single
+  `Outliers(df["col"])` Series instead.
 - For machine learning, calculate the limits on the **training data only** to avoid data leakage.
 
 ## 👤 Author and license

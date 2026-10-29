@@ -3,15 +3,31 @@ import pandas as pd
 
 
 class Outliers:
-    def __init__(self, df, columns=None):
+    def __init__(self, data, columns=None):
         """
-        df      : your DataFrame
-        columns : list of columns to check (default = all numeric columns)
+        data    : a pandas DataFrame or a pandas Series
+        columns : list of columns to check (DataFrame only; default = all
+                  numeric columns). Must be None for Series input.
         """
-        if not isinstance(df, pd.DataFrame):
-            raise TypeError("df must be a pandas DataFrame")
+        if isinstance(data, pd.Series):
+            if columns is not None:
+                raise ValueError("columns is not supported when data is a pandas Series")
+            if not pd.api.types.is_numeric_dtype(data):
+                raise ValueError("Series must be numeric")
 
-        self.df = df.copy()
+            self._is_series = True
+            self._series_name = data.name
+            col_name = data.name if data.name is not None else "value"
+            self._col_name = col_name
+            self.df = data.rename(col_name).to_frame()
+            self.num_cols = [col_name]
+            return
+
+        if not isinstance(data, pd.DataFrame):
+            raise TypeError("data must be a pandas DataFrame or a pandas Series")
+
+        self._is_series = False
+        self.df = data.copy()
         numeric = self.df.select_dtypes(include=np.number).columns.tolist()
 
         if columns is None:
@@ -25,6 +41,14 @@ class Outliers:
             if not_numeric:
                 raise ValueError(f"Columns are not numeric: {not_numeric}")
             self.num_cols = columns
+
+    # ---------- output helpers ----------
+    def _wrap(self, result_df):
+        """Convert an internal result DataFrame back to a Series when the
+        tool was constructed from a Series; otherwise return it as-is."""
+        if self._is_series:
+            return result_df[self._col_name].rename(self._series_name)
+        return result_df
 
     # ---------- 1. LIMITS ----------
     def _iqr_bounds(self, col, factor=1.5):
@@ -43,8 +67,12 @@ class Outliers:
 
     def _bounds(self, col, method, threshold):
         if method == "iqr":
+            if threshold is not None and not isinstance(threshold, (int, float)):
+                raise ValueError("threshold/factor must be numeric")
             return self._iqr_bounds(col, threshold if threshold is not None else 1.5)
         if method == "zscore":
+            if threshold is not None and not isinstance(threshold, (int, float)):
+                raise ValueError("threshold/limit must be numeric")
             return self._zscore_bounds(col, threshold if threshold is not None else 3)
         raise ValueError("method must be 'iqr' or 'zscore'")
 
@@ -58,13 +86,15 @@ class Outliers:
 
     # ---------- 2. FIND OUTLIERS ----------
     def find(self, method="iqr", threshold=None):
-        """Summary table of outliers per column."""
+        """Summary table of outliers per column (one row per column; one
+        row total when the tool was constructed from a Series)."""
         rows = []
         for col in self.num_cols:
             lower, upper = self._bounds(col, method, threshold)
             n = int(((self.df[col] < lower) | (self.df[col] > upper)).sum())
+            label = self._series_name if (self._is_series and self._series_name is not None) else col
             rows.append({
-                "column": col, "method": method,
+                "column": label, "method": method,
                 "lower": lower, "upper": upper,
                 "outliers": n,
                 "percent": round(n / len(self.df) * 100, 2) if len(self.df) else 0.0,
@@ -85,21 +115,21 @@ class Outliers:
 
     # ---------- 4. IQR METHOD ----------
     def iqr_trim(self, factor=1.5):
-        """IQR + TRIM: remove rows with outliers."""
-        return self._trim("iqr", factor)
+        """IQR + TRIM: remove rows/elements with outliers."""
+        return self._wrap(self._trim("iqr", factor))
 
     def iqr_cap(self, factor=1.5):
         """IQR + CAPPING: replace outliers with lower/upper limit."""
-        return self._cap("iqr", factor)
+        return self._wrap(self._cap("iqr", factor))
 
     # ---------- 5. Z-SCORE METHOD ----------
     def zscore_trim(self, limit=3):
-        """Z-score + TRIM: remove rows with outliers."""
-        return self._trim("zscore", limit)
+        """Z-score + TRIM: remove rows/elements with outliers."""
+        return self._wrap(self._trim("zscore", limit))
 
     def zscore_cap(self, limit=3):
         """Z-score + CAPPING: replace outliers with lower/upper limit."""
-        return self._cap("zscore", limit)
+        return self._wrap(self._cap("zscore", limit))
 
     # ---------- 6. REPLACE WITH MEAN / MEDIAN ----------
     def replace_with_mean(self, method="iqr", threshold=None):
@@ -109,7 +139,7 @@ class Outliers:
         for col in self.num_cols:
             if mask[col].any():
                 out.loc[mask[col], col] = self.df.loc[~mask[col], col].mean()
-        return out
+        return self._wrap(out)
 
     def replace_with_median(self, method="iqr", threshold=None):
         """Replace outliers with the column median (calculated without the outliers)."""
@@ -118,4 +148,4 @@ class Outliers:
         for col in self.num_cols:
             if mask[col].any():
                 out.loc[mask[col], col] = self.df.loc[~mask[col], col].median()
-        return out
+        return self._wrap(out)

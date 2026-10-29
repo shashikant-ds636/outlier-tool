@@ -75,3 +75,96 @@ def test_nan_is_not_flagged():
 def test_bad_method_raises():
     with pytest.raises(ValueError):
         Outliers(sample_data()).find("bad")
+
+
+# ---------------- Series support (v0.2.0) ----------------
+
+def sample_series():
+    return pd.Series([10, 11, 12, 13, 14, 15, 16, 500], name="amount")
+
+
+def test_series_construction_and_find():
+    o = Outliers(sample_series())
+    report = o.find("iqr")
+    assert len(report) == 1
+    assert report.loc[0, "column"] == "amount"
+    assert report.loc[0, "outliers"] == 1
+
+
+def test_series_iqr_cap_returns_series():
+    s = sample_series()
+    result = Outliers(s).iqr_cap()
+    assert isinstance(result, pd.Series)
+    assert result.name == "amount"
+    assert result.max() < 500
+    assert len(result) == len(s)
+
+
+def test_series_iqr_trim_preserves_index_and_name():
+    s = sample_series()
+    result = Outliers(s).iqr_trim()
+    assert isinstance(result, pd.Series)
+    assert result.name == "amount"
+    assert 500 not in result.values
+    assert list(result.index) == [0, 1, 2, 3, 4, 5, 6]
+
+
+def test_series_zscore_cap_and_trim():
+    s = pd.Series(list(range(1, 30)) + [1000])
+    o = Outliers(s)
+    assert o.find("zscore")["outliers"].iloc[0] == 1
+    capped = o.zscore_cap()
+    assert isinstance(capped, pd.Series)
+    assert capped.max() < 1000
+    trimmed = o.zscore_trim()
+    assert len(trimmed) == 29
+
+
+def test_series_replace_with_mean_and_median():
+    s = sample_series()
+    o = Outliers(s)
+    mean_result = o.replace_with_mean()
+    median_result = o.replace_with_median()
+    assert isinstance(mean_result, pd.Series)
+    assert isinstance(median_result, pd.Series)
+    assert mean_result.max() < 500
+    assert median_result.max() < 500
+
+
+def test_series_original_input_not_modified():
+    s = sample_series()
+    o = Outliers(s)
+    o.iqr_cap(); o.iqr_trim(); o.replace_with_mean()
+    assert s.max() == 500
+
+
+def test_series_unnamed_gets_value_label():
+    s = pd.Series([1, 2, 3, 4, 5, 100])
+    report = Outliers(s).find("iqr")
+    assert report.loc[0, "column"] == "value"
+    result = Outliers(s).iqr_cap()
+    assert result.name is None
+
+
+def test_series_rejects_columns_argument():
+    with pytest.raises(ValueError):
+        Outliers(sample_series(), columns=["amount"])
+
+
+def test_series_rejects_non_numeric():
+    with pytest.raises(ValueError):
+        Outliers(pd.Series(["a", "b", "c"]))
+
+
+def test_dataframe_from_series_column_roundtrip():
+    df = sample_data()
+    price = df["amount"]
+    o = Outliers(price)
+    capped = o.iqr_cap()
+    assert isinstance(capped, pd.Series)
+    assert capped.name == "amount"
+
+
+def test_invalid_input_type_raises():
+    with pytest.raises(TypeError):
+        Outliers([1, 2, 3])
